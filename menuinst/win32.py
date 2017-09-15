@@ -138,6 +138,7 @@ def to_bytes(var, codec=locale.getpreferredencoding()):
 if u'\\envs\\' in to_unicode(sys.prefix):
     logger.warn('menuinst called from non-root env %s' % (sys.prefix))
 unicode_prefix = to_unicode(sys.prefix)
+unicode_prefix_pyw = join(unicode_prefix, u"pythonw.exe").replace("\\", "/")
 
 
 def substitute_env_variables(text, dir):
@@ -233,7 +234,8 @@ def get_python_args_for_subprocess(prefix, args, cmd):
             quoted(cmd)] + args
 
 
-def extend_script_args(args, shortcut):
+def get_script_args(shortcut):
+    args = []
     try:
         args.append(shortcut['scriptargument'])
     except KeyError:
@@ -242,6 +244,7 @@ def extend_script_args(args, shortcut):
         args.extend(shortcut['scriptarguments'])
     except KeyError:
         pass
+    return args
 
 
 class ShortCut(object):
@@ -253,32 +256,7 @@ class ShortCut(object):
         self.create(remove=True)
 
     def create(self, remove=False):
-        args = []
-        # cmd is our root installation interpreter
-        cmd = join(unicode_prefix, u"pythonw.exe").replace("\\", "/")
-        # each of these roll the subprocess cmd into args
-        if "pywscript" in self.shortcut:
-            subprocess_cmd = join(self.menu.prefix, u"pythonw.exe").replace("\\", "/")
-            args = self.shortcut["pywscript"].split()
-            args = get_python_args_for_subprocess(self.menu.prefix, args, subprocess_cmd)
-        elif "pyscript" in self.shortcut:
-            subprocess_cmd = join(self.menu.prefix, u"python.exe").replace("\\", "/")
-            args = self.shortcut["pyscript"].split()
-            args = get_python_args_for_subprocess(self.menu.prefix, args, subprocess_cmd)
-        elif "webbrowser" in self.shortcut:
-            args = ['-m', 'webbrowser', '-t', self.shortcut['webbrowser']]
-        elif "script" in self.shortcut:
-            subprocess_cmd = join(unicode_prefix, u"pythonw.exe").replace("\\", "/")
-            args.append(self.shortcut["script"].replace('/', '\\'))
-            extend_script_args(args, self.shortcut)
-            args = get_python_args_for_subprocess(self.menu.prefix, args, subprocess_cmd)
-        elif "system" in self.shortcut:
-            subprocess_cmd = substitute_env_variables(self.shortcut["system"],
-                                                      self.menu.dir).replace('/', '\\')
-            args = get_python_args_for_subprocess(self.menu.prefix, args, subprocess_cmd)
-            extend_script_args(args, self.shortcut)
-        else:
-            raise Exception("Nothing to do: %r" % self.shortcut)
+        cmd, args = self._get_cmd_args()
 
         workdir = self.shortcut.get('workdir', '')
         icon = self.shortcut.get('icon', '')
@@ -327,3 +305,34 @@ class ShortCut(object):
                     u'' + workdir,
                     u'' + icon,
                 )
+
+    def _get_cmd_args(self):
+        shortcut = self.shortcut
+        menu = self.menu
+        if "pywscript" in shortcut:
+            subprocess_cmd = join(menu.prefix, u"pythonw.exe").replace("\\", "/")
+            subprocess_args = shortcut["pywscript"].split()
+            cmd = unicode_prefix_pyw
+            args = get_python_args_for_subprocess(menu.prefix, subprocess_args, subprocess_cmd)
+        elif "pyscript" in shortcut:
+            subprocess_cmd = join(menu.prefix, u"python.exe").replace("\\", "/")
+            subprocess_args = shortcut["pyscript"].split()
+            cmd = unicode_prefix_pyw
+            args = get_python_args_for_subprocess(menu.prefix, subprocess_args, subprocess_cmd)
+        elif "webbrowser" in shortcut:
+            # no environment modifications necessary
+            cmd = unicode_prefix_pyw
+            args = ["-m", "webbrowser", "-t", shortcut["webbrowser"]]
+        elif "script" in shortcut:
+            subprocess_cmd = shortcut["script"].replace("/", "\\")
+            subprocess_args = get_script_args(shortcut)
+            cmd = unicode_prefix_pyw
+            args = get_python_args_for_subprocess(menu.prefix, subprocess_args, subprocess_cmd)
+        elif "system" in shortcut:
+            # no path modifications here, as stated in the wiki:
+            #   "system": "path to executable.  No environment modification is done.",
+            cmd = substitute_env_variables(shortcut["system"], menu.dir).replace("/", "\\")
+            args = get_script_args(shortcut)
+        else:
+            raise Exception("Nothing to do: %r" % shortcut)
+        return cmd, args
